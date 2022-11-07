@@ -1,0 +1,10 @@
+{
+    email contact@openindoor.net
+}
+
+overpass-world.openindoor.io {
+    handle * {
+        reverse_proxy http://localhost:12346
+    }
+}
+

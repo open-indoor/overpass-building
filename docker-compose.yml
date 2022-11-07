@@ -1,0 +1,122 @@
+services:
+
+  caddy:
+    image: caddy:alpine
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - $PWD/Caddyfile:/etc/caddy/Caddyfile
+      - $PWD/site:/srv
+      - caddy_data:/data
+      - caddy_config:/config
+    command: caddy run --config /etc/caddy/Caddyfile --adapter caddyfile --watch
+
+  portainer:
+    container_name: portainer
+    image: portainer/portainer-ce:latest
+    restart: unless-stopped
+    command: -H unix:///var/run/docker.sock
+    ports:
+      - 9000:9000
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+      - dataportainer:/data
+    labels: # for traefik, delete this if not needed
+      traefik.enable: true
+      traefik.http.routers.portainer-http.entrypoints: web
+      traefik.http.routers.portainer.rule: Host(`portainer.czs.local`)
+
+  overpass_world:
+    container_name: overpass_world
+    image: wiktorn/overpass-api
+    restart: unless-stopped
+    mem_limit: 28GB
+    mem_reservation: 24GB
+    cpus: 7
+    environment:
+    # - OVERPASS_META=yes
+    # - OVERPASS_MODE=clone
+    - OVERPASS_DIFF_URL=https://planet.openstreetmap.org/replication/minute/
+    - OVERPASS_RULES_LOAD=90
+    # - OVERPASS_FASTCGI_PROCESSES=100
+    - OVERPASS_SPACE=24000000000
+    - OVERPASS_FASTCGI_PROCESSES=8
+    - OVERPASS_RATE_LIMIT=8
+    volumes:
+    - overpass_clone_world_db/:/db
+    ports:
+    - 12346:80
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail -g 'http://overpass_world/api/interpreter?data=[out:json];node(1);out;' || exit 1"]
+      start_period: 120s
+      interval: 60s
+      timeout: 10s
+      retries: 3
+  # rancher:
+  #   image: rancher/rancher:latest
+  #   privileged: true
+  #   restart: unless-stopped
+  #   ports:
+  #   - 80:80
+  #   - 443:443
+  #   command: --acme-domain pikachu.openindoor.io
+
+# docker run -d --restart=unless-stopped \
+#   -p 80:80 -p 443:443 \
+#   --privileged \
+#   rancher/rancher:latest \
+#   --acme-domain <YOUR.DNS.NAME>
+
+  building-diff-updater:
+    build: building-diff-updater
+    image: building-diff-updater
+    restart: unless-stopped
+    working_dir: /openindoor
+    volumes:
+    - ./building-diff-updater/:/openindoor/
+    environment:
+      FLASK_APP: /openindoor/building-diff-updater.py
+      FLASK_ENV: development
+    command: flask run --host=0.0.0.0
+    ports:
+      - "8092:5000"
+
+  building-update-minutely:
+    build: building-update-minutely
+    # restart: unless-stopped
+    working_dir: /openindoor
+    volumes:
+    - ./building-update-minutely:/openindoor
+    environment:
+      PYTHONUNBUFFERED: 1
+    command: ./building-update-minutely.py
+
+  # building-update-past:
+  #   build: building-update-past
+  #   working_dir: /openindoor
+  #   volumes:
+  #   - ./building-update-past:/openindoor
+  #   environment:
+  #     DIFF_SEQ_NUMBER_INIT: 5031092
+  #   command: ./update_past.sh
+
+  # Make restart unhealthy containers
+  deunhealth:
+    image: qmcgaw/deunhealth:latest
+    container_name: deunhealth
+    network_mode: "none"
+    environment:
+      - LOG_LEVEL=info
+      - HEALTH_SERVER_ADDRESS=127.0.0.1:9999
+      - TZ=Europe/Zurich
+    restart: always
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+
+volumes:
+  caddy_data:
+  caddy_config:
+  dataportainer:
+  overpass_clone_world_db:
